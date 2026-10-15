@@ -29,6 +29,7 @@ typedef struct {
     int  selected_scale;         /* percentual, 100 = sem zoom */
     int  item_size;              /* icone dos apps (px) */
     int  waves;                  /* 1 = ondas animadas no fundo (mais pesado; padrao 0) */
+    int  font_scale;             /* 60..140 (%), tamanho do texto; 100 = padrao */
     /* [general] */
     int  usb_wait_ms;
     char header[48];
@@ -43,5 +44,10 @@ typedef struct {
 void config_defaults(Config *c);
 int  config_load(Config *c, const char *path);   /* 0 = ok */
 void config_rel(const Config *c, const char *rel, char *out, int outsz);
+
+/* padrao interno = mesmo conteudo do launcher.ini de exemplo (usado se nao houver .ini) */
+void config_reset_theme(Config *c);                   /* so cores/tamanhos/usb_wait_ms */
+void config_builtin(Config *c, const char *base);     /* tema + categorias + apps padrao */
+int  config_save(const Config *c, const char *path);  /* grava .ini (faz .bak se ja existir); 0 = ok */
 
 #endif

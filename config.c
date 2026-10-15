@@ -39,6 +39,7 @@ void config_defaults(Config *c)
     c->selected_scale = 125;
     c->item_size = 36;
     c->waves = 0;
+    c->font_scale = 100;
     c->usb_wait_ms = 8000;
     cpy(c->header, sizeof(c->header), "PS2 Launcher");
 }
@@ -116,6 +117,7 @@ int config_load(Config *c, const char *path)
             else if (!strcmp(k, "selected_scale")) c->selected_scale = atoi(v);
             else if (!strcmp(k, "item_size")) c->item_size = atoi(v);
             else if (!strcmp(k, "waves")) c->waves = atoi(v);
+            else if (!strcmp(k, "font_scale")) c->font_scale = atoi(v);
         } else if (!strcmp(sec, "general")) {
             if (!strcmp(k, "usb_wait_ms")) c->usb_wait_ms = atoi(v);
             else if (!strcmp(k, "header")) cpy(c->header, sizeof(c->header), v);
@@ -157,5 +159,124 @@ int config_load(Config *c, const char *path)
     if (c->bg_dim > 112) c->bg_dim = 112;
     if (c->item_size < 24) c->item_size = 24;
     if (c->item_size > 64) c->item_size = 64;
+    if (c->font_scale < 60) c->font_scale = 60;
+    if (c->font_scale > 140) c->font_scale = 140;
     return 0;
+}
+
+/* ---------- padrao interno (espelha o launcher.ini de exemplo) ---------- */
+void config_reset_theme(Config *c)
+{
+    c->bg_top = 0x1B2A4A;
+    c->bg_bottom = 0x05070F;
+    c->accent = 0x4FA3FF;
+    c->text = 0xFFFFFF;
+    c->text_dim = 0x8A93A6;
+    c->bg_dim = 30;
+    c->icon_size = 56;
+    c->selected_scale = 125;
+    c->item_size = 36;
+    c->waves = 0;
+    c->font_scale = 100;
+    c->usb_wait_ms = 8000;
+}
+
+void config_builtin(Config *c, const char *base)
+{
+    static const struct { const char *title, *icon; } cats[] = {
+        { "Jogos",       "icons/games.png" },
+        { "Ferramentas", "icons/tools.png" },
+    };
+    static const struct { const char *title, *cat, *path, *icon; } apps[] = {
+        { "OPL",           "Jogos",       "mass:/OPL/OPNPS2LD.ELF|mass:/OPNPS2LD.ELF|mc0:/APPS/OPL/OPNPS2LD.ELF", "icons/opl.png" },
+        { "Neutrino",      "Jogos",       "mass:/neutrino/neutrino.elf",                                          "icons/neutrino.png" },
+        { "uLaunchELF",    "Ferramentas", "mass:/APPS/ULE.ELF|mass:/BOOT/BOOT.ELF|mc0:/BOOT/BOOT.ELF",            "icons/ule.png" },
+        { "Meu ELF exFAT", "Ferramentas", "mass1:/APPS/MEUAPP.ELF",                                               "icons/app.png" },
+    };
+
+    config_defaults(c);
+    config_reset_theme(c);
+    cpy(c->background, sizeof(c->background), "bg.png");
+    cpy(c->base, sizeof(c->base), base ? base : "");
+
+    for (int i = 0; i < (int)(sizeof(cats) / sizeof(cats[0])) && c->ncat < MAX_CATS; i++) {
+        Category *k = &c->cats[c->ncat++];
+        memset(k, 0, sizeof(*k));
+        cpy(k->title, sizeof(k->title), cats[i].title);
+        cpy(k->icon, sizeof(k->icon), cats[i].icon);
+    }
+    for (int i = 0; i < (int)(sizeof(apps) / sizeof(apps[0])) && c->count < MAX_ENTRIES; i++) {
+        Entry *e = &c->entries[c->count++];
+        memset(e, 0, sizeof(*e));
+        cpy(e->title, sizeof(e->title), apps[i].title);
+        cpy(e->catname, sizeof(e->catname), apps[i].cat);
+        cpy(e->paths, sizeof(e->paths), apps[i].path);
+        cpy(e->icon, sizeof(e->icon), apps[i].icon);
+        for (int k = 0; k < c->ncat; k++)
+            if (!strcasecmp(apps[i].cat, c->cats[k].title)) { e->cat = k; break; }
+    }
+}
+
+/* ---------- gravacao ---------- */
+static void put_color(FILE *f, const char *k, u32 v)
+{
+    fprintf(f, "%s=#%06X\n", k, (unsigned)(v & 0xFFFFFF));
+}
+
+static void backup_file(const char *path)
+{
+    FILE *in = fopen(path, "rb");
+    if (!in) return;
+    char bak[200];
+    snprintf(bak, sizeof(bak), "%s.bak", path);
+    FILE *out = fopen(bak, "wb");
+    if (out) {
+        char buf[1024];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), in)) > 0) fwrite(buf, 1, n, out);
+        fclose(out);
+    }
+    fclose(in);
+}
+
+int config_save(const Config *c, const char *path)
+{
+    backup_file(path);                      /* preserva comentarios do arquivo antigo */
+    FILE *f = fopen(path, "wb");
+    if (!f) return -1;
+
+    fprintf(f, "; PS2 Launcher - configuracao (gerada pelo menu de configuracoes)\n");
+    fprintf(f, "; Cores: #RRGGBB ou 0xRRGGBB. Caminhos relativos partem da pasta deste .ini\n");
+    fprintf(f, "; mass:/ = todos os USB | mass1:/ = dispositivo fixo | mc0:/ = memory card\n");
+    fprintf(f, "; Varios caminhos separados por '|' = tenta em ordem.\n\n");
+
+    fprintf(f, "[general]\nheader=%s\nusb_wait_ms=%d\n\n", c->header, c->usb_wait_ms);
+
+    fprintf(f, "[theme]\n");
+    if (c->background[0]) fprintf(f, "background=%s\n", c->background);
+    put_color(f, "bg_top", c->bg_top);
+    put_color(f, "bg_bottom", c->bg_bottom);
+    fprintf(f, "bg_dim=%d\n", c->bg_dim);
+    put_color(f, "accent", c->accent);
+    put_color(f, "text", c->text);
+    put_color(f, "text_dim", c->text_dim);
+    fprintf(f, "icon_size=%d\nselected_scale=%d\nitem_size=%d\nwaves=%d\nfont_scale=%d\n\n",
+            c->icon_size, c->selected_scale, c->item_size, c->waves, c->font_scale);
+
+    for (int i = 0; i < c->ncat; i++) {
+        fprintf(f, "[category%d]\ntitle=%s\n", i + 1, c->cats[i].title);
+        if (c->cats[i].icon[0]) fprintf(f, "icon=%s\n", c->cats[i].icon);
+        fprintf(f, "\n");
+    }
+    for (int i = 0; i < c->count; i++) {
+        const Entry *e = &c->entries[i];
+        int k = (e->cat >= 0 && e->cat < c->ncat) ? e->cat : 0;
+        fprintf(f, "[app%d]\ntitle=%s\ncategory=%s\npath=%s\n", i + 1, e->title, c->cats[k].title, e->paths);
+        if (e->icon[0]) fprintf(f, "icon=%s\n", e->icon);
+        fprintf(f, "\n");
+    }
+
+    int err = ferror(f);
+    if (fclose(f) != 0) err = 1;
+    return err ? -1 : 0;
 }
